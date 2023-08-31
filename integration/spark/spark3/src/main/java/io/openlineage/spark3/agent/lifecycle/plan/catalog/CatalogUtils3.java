@@ -29,7 +29,8 @@ public class CatalogUtils3 {
             new DatabricksDeltaHandler(context),
             new DatabricksUnityV2Handler(context),
             new JdbcHandler(),
-            new V2SessionCatalogHandler());
+            new V2SessionCatalogHandler(),
+            new LakeSoulHandler(context));
     return handlers.stream().filter(CatalogHandler::hasClasses).collect(Collectors.toList());
   }
 

@@ -7,27 +7,51 @@ package io.openlineage.spark.agent.lifecycle;
 
 import com.google.common.collect.ImmutableList;
 import io.openlineage.client.OpenLineage;
+import io.openlineage.spark.agent.lifecycle.plan.CommandPlanVisitor;
 import io.openlineage.spark.agent.lifecycle.plan.SaveIntoDataSourceCommandVisitor;
 import io.openlineage.spark.agent.util.DeltaUtils;
+import io.openlineage.spark.agent.util.LakeSoulUtils;
 import io.openlineage.spark.api.DatasetFactory;
 import io.openlineage.spark.api.OpenLineageContext;
-import io.openlineage.spark3.agent.lifecycle.plan.AppendDataDatasetBuilder;
-import io.openlineage.spark3.agent.lifecycle.plan.DataSourceV2RelationOutputDatasetBuilder;
-import io.openlineage.spark3.agent.lifecycle.plan.LogicalRelationDatasetBuilder;
-import io.openlineage.spark3.agent.lifecycle.plan.MergeIntoCommandOutputDatasetBuilder;
-import io.openlineage.spark3.agent.lifecycle.plan.SubqueryAliasOutputDatasetBuilder;
-import io.openlineage.spark3.agent.lifecycle.plan.TableContentChangeDatasetBuilder;
+import io.openlineage.spark3.agent.lifecycle.plan.*;
 import io.openlineage.spark32.agent.lifecycle.plan.AlterTableCommandDatasetBuilder;
 import io.openlineage.spark33.agent.lifecycle.plan.CreateReplaceDatasetBuilder;
 import io.openlineage.spark33.agent.lifecycle.plan.ReplaceIcebergDataDatasetBuilder;
 import java.util.Collection;
 import java.util.List;
+
+import io.openlineage.spark33.agent.lifecycle.plan.UpsertLakeSoulInputDatasetBuilder;
+import io.openlineage.spark33.agent.lifecycle.plan.UpsertLakeSoulOutputDatasetBuilder;
 import lombok.extern.slf4j.Slf4j;
 import scala.PartialFunction;
 
 @Slf4j
 public class Spark33DatasetBuilderFactory extends Spark32DatasetBuilderFactory
     implements DatasetBuilderFactory {
+
+  @Override
+  public Collection<PartialFunction<Object, List<OpenLineage.InputDataset>>> getInputBuilders(
+          OpenLineageContext context) {
+    DatasetFactory<OpenLineage.InputDataset> datasetFactory = DatasetFactory.input(context);
+    ImmutableList.Builder builder =
+            ImmutableList.<PartialFunction<Object, List<OpenLineage.InputDataset>>>builder()
+                    .add(new LogicalRelationDatasetBuilder(context, datasetFactory, true))
+                    .add(new InMemoryRelationInputDatasetBuilder(context))
+                    .add(new CommandPlanVisitor(context))
+                    .add(new DataSourceV2ScanRelationInputDatasetBuilder(context, datasetFactory))
+                    .add(new SubqueryAliasInputDatasetBuilder(context))
+                    .add(new DataSourceV2RelationInputDatasetBuilder(context, datasetFactory));
+
+    if (DeltaUtils.hasMergeIntoCommandClass()) {
+      builder.add(new MergeIntoCommandInputDatasetBuilder(context));
+    }
+
+    if (LakeSoulUtils.hasUpsertCommandClass()) {
+      builder.add(new UpsertLakeSoulInputDatasetBuilder(context));
+    }
+
+    return builder.build();
+  }
 
   @Override
   public Collection<PartialFunction<Object, List<OpenLineage.OutputDataset>>> getOutputBuilders(
@@ -50,6 +74,10 @@ public class Spark33DatasetBuilderFactory extends Spark32DatasetBuilderFactory
 
     if (ReplaceIcebergDataDatasetBuilder.hasClasses()) {
       builder.add(new ReplaceIcebergDataDatasetBuilder(context));
+    }
+
+    if (LakeSoulUtils.hasUpsertCommandClass()) {
+      builder.add(new UpsertLakeSoulOutputDatasetBuilder((context)));
     }
 
     return builder.build();
